@@ -1,0 +1,125 @@
+#!/usr/bin/env groovy
+
+node {
+    timestamps {
+        properties([
+            parameters([
+                choice(
+                    name: "SIGNING_ENV",
+                    choices: ["stage", "prod"],
+                    description: "Signing environment to validate"
+                )
+            ])
+        ])
+
+        def signingEnv = params.SIGNING_ENV ?: "stage"
+
+        if (signingEnv == "stage") {
+            stage("Validate stage signing credentials") {
+                withCredentials([
+                    file(
+                        credentialsId: "ocp-art-signing-stage.keytab",
+                        variable: "DIRECT_SIGNING_STAGE_KEYTAB"
+                    ),
+                    string(
+                        credentialsId: "ocp-art-signing-stage.user",
+                        variable: "DIRECT_SIGNING_STAGE_PRINCIPAL"
+                    )
+                ]) {
+                    sh(
+                        label: "Validate stage Kerberos credentials",
+                        script: '''
+                            set -eu
+
+                            test -s "$DIRECT_SIGNING_STAGE_KEYTAB"
+                            test "$DIRECT_SIGNING_STAGE_PRINCIPAL" = \
+                                "ocp-art-signing-stage@IPA.REDHAT.COM"
+
+                            command -v klist
+                            command -v kinit
+                            command -v kdestroy
+
+                            klist -k -t "$DIRECT_SIGNING_STAGE_KEYTAB" >/dev/null
+
+                            ccache_dir="$(mktemp -d /tmp/art-signing-check.XXXXXX)"
+                            ccache="$ccache_dir/ccache"
+
+                            cleanup() {
+                                kdestroy -c "FILE:$ccache" >/dev/null 2>&1 || true
+                                rm -f -- "$ccache"
+                                rmdir "$ccache_dir"
+                            }
+
+                            trap cleanup EXIT
+
+                            export KRB5CCNAME="FILE:$ccache"
+
+                            kinit \
+                                -k \
+                                -t "$DIRECT_SIGNING_STAGE_KEYTAB" \
+                                -c "$KRB5CCNAME" \
+                                "$DIRECT_SIGNING_STAGE_PRINCIPAL"
+
+                            klist -s -c "$KRB5CCNAME"
+
+                            echo "Stage credentials resolved and Kerberos authentication succeeded"
+                        '''
+                    )
+                }
+            }
+        } else {
+            stage("Validate prod signing credentials") {
+                withCredentials([
+                    file(
+                        credentialsId: "ocp-art-signing-prod.keytab",
+                        variable: "DIRECT_SIGNING_PROD_KEYTAB"
+                    ),
+                    string(
+                        credentialsId: "ocp-art-signing-prod.user",
+                        variable: "DIRECT_SIGNING_PROD_PRINCIPAL"
+                    )
+                ]) {
+                    sh(
+                        label: "Validate prod Kerberos credentials",
+                        script: '''
+                            set -eu
+
+                            test -s "$DIRECT_SIGNING_PROD_KEYTAB"
+                            test "$DIRECT_SIGNING_PROD_PRINCIPAL" = \
+                                "ocp-art-signing-prod@IPA.REDHAT.COM"
+
+                            command -v klist
+                            command -v kinit
+                            command -v kdestroy
+
+                            klist -k -t "$DIRECT_SIGNING_PROD_KEYTAB" >/dev/null
+
+                            ccache_dir="$(mktemp -d /tmp/art-signing-check.XXXXXX)"
+                            ccache="$ccache_dir/ccache"
+
+                            cleanup() {
+                                kdestroy -c "FILE:$ccache" >/dev/null 2>&1 || true
+                                rm -f -- "$ccache"
+                                rmdir "$ccache_dir"
+                            }
+
+                            trap cleanup EXIT
+
+                            export KRB5CCNAME="FILE:$ccache"
+
+                            kinit \
+                                -k \
+                                -t "$DIRECT_SIGNING_PROD_KEYTAB" \
+                                -c "$KRB5CCNAME" \
+                                "$DIRECT_SIGNING_PROD_PRINCIPAL"
+
+                            klist -s -c "$KRB5CCNAME"
+
+                            echo "Prod credentials resolved and Kerberos authentication succeeded"
+                        '''
+                    )
+                }
+            }
+        }
+    }
+}
