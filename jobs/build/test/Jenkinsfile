@@ -38,8 +38,7 @@ node {
                             command -v klist
                             command -v kinit
                             command -v kdestroy
-
-                            klist -k -t "$DIRECT_SIGNING_STAGE_KEYTAB" >/dev/null
+                            command -v rh-signing-client
 
                             ccache_dir="$(mktemp -d /tmp/art-signing-check.XXXXXX)"
                             ccache="$ccache_dir/ccache"
@@ -62,7 +61,15 @@ node {
 
                             klist -s -c "$KRB5CCNAME"
 
-                            echo "Stage credentials resolved and Kerberos authentication succeeded"
+                            key_list="$(rh-signing-client --list-keys)"
+                            key_line="$(printf '%s\\n' "$key_list" | awk '$1 == "beta2" { print; exit }')"
+
+                            test -n "$key_line"
+                            printf '%s\\n' "$key_line"
+                            printf '%s\\n' "$key_line" | grep -q "gpgsign"
+                            printf '%s\\n' "$key_line" | grep -q "detachsign"
+
+                            echo "Stage principal can access beta2 with both signing capabilities"
                         '''
                     )
                 }
@@ -91,8 +98,7 @@ node {
                             command -v klist
                             command -v kinit
                             command -v kdestroy
-
-                            klist -k -t "$DIRECT_SIGNING_PROD_KEYTAB" >/dev/null
+                            command -v rh-signing-client
 
                             ccache_dir="$(mktemp -d /tmp/art-signing-check.XXXXXX)"
                             ccache="$ccache_dir/ccache"
@@ -115,7 +121,15 @@ node {
 
                             klist -s -c "$KRB5CCNAME"
 
-                            echo "Prod credentials resolved and Kerberos authentication succeeded"
+                            key_list="$(rh-signing-client --list-keys)"
+                            key_line="$(printf '%s\\n' "$key_list" | awk '$1 == "redhatrelease2" { print; exit }')"
+
+                            test -n "$key_line"
+                            printf '%s\\n' "$key_line"
+                            printf '%s\\n' "$key_line" | grep -q "gpgsign"
+                            printf '%s\\n' "$key_line" | grep -q "detachsign"
+
+                            echo "Prod principal can access redhatrelease2 with both signing capabilities"
                         '''
                     )
                 }
