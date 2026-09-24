@@ -25,66 +25,57 @@ node {
                         credentialsId: "ocp-art-signing-stage.user",
                         variable: "DIRECT_SIGNING_STAGE_PRINCIPAL"
                     )
-                ]) {
-                    sh(
-                        label: "Validate stage Kerberos credentials",
-                        script: '''
-                            set -eu
+              ]) {
+                  sh(
+                      label: "Sign with beta2",
+                      script: '''
+                          set -eu
+                          umask 077
 
-                            test -s "$DIRECT_SIGNING_STAGE_KEYTAB"
-                            test "$DIRECT_SIGNING_STAGE_PRINCIPAL" = \
-                                "ocp-art-signing-stage@IPA.REDHAT.COM"
+                          test -s "$DIRECT_SIGNING_STAGE_KEYTAB"
+                          test "$DIRECT_SIGNING_STAGE_PRINCIPAL" = \
+                              "ocp-art-signing-stage@IPA.REDHAT.COM"
 
-                            command -v klist
-                            command -v kinit
-                            command -v kdestroy
-                            command -v rh-signing-client
+                          command -v kinit
+                          command -v klist
+                          command -v kdestroy
+                          command -v rh-signing-client
 
-                            ccache_dir="$(mktemp -d /tmp/art-signing-check.XXXXXX)"
-                            ccache="$ccache_dir/ccache"
+                          work_dir="$(mktemp -d /tmp/art-beta2-sign-test.XXXXXX)"
+                          payload="$work_dir/payload.txt"
+                          gpg_signature="$work_dir/payload.gpg"
 
-                            cleanup() {
-                                kdestroy -c "FILE:$ccache" >/dev/null 2>&1 || true
-                                rm -f -- "$ccache"
-                                rmdir "$ccache_dir"
-                            }
+                          export KRB5CCNAME="FILE:$work_dir/ccache"
 
-                            trap cleanup EXIT
+                          cleanup() {
+                              kdestroy -c "$KRB5CCNAME" >/dev/null 2>&1 || true
+                              rm -rf -- "$work_dir"
+                          }
 
-                            export KRB5CCNAME="FILE:$ccache"
+                          trap cleanup EXIT
 
-                            kinit \
-                                -k \
-                                -t "$DIRECT_SIGNING_STAGE_KEYTAB" \
-                                -c "$KRB5CCNAME" \
-                                "$DIRECT_SIGNING_STAGE_PRINCIPAL"
+                          kinit \
+                              -k \
+                              -t "$DIRECT_SIGNING_STAGE_KEYTAB" \
+                              -c "$KRB5CCNAME" \
+                              "$DIRECT_SIGNING_STAGE_PRINCIPAL"
 
-                            klist -s -c "$KRB5CCNAME"
+                          klist -s -c "$KRB5CCNAME"
 
-                            key_list="$(
-                                rh-signing-client \
-                                    --keytab="$DIRECT_SIGNING_STAGE_KEYTAB" \
-                                    --principal="$DIRECT_SIGNING_STAGE_PRINCIPAL" \
-                                    --list-keys
-                            )"
-                            printf '%s\\n' "$key_list"
+                          printf '%s\\n' "ART beta2 signing smoke test" > "$payload"
 
-                            key_line="$(printf '%s\\n' "$key_list" | awk '$1 == "beta2" { print; exit }')"
+                          rh-signing-client \
+                              --key beta2 \
+                              "$payload" \
+                              --gpgsign \
+                              --output "$gpg_signature" \
+                              --onbehalfof "jupierce@redhat.com"
 
-                            test -n "$key_line"
-                            if [ -z "$key_line" ]; then
-                                echo "rh-signing-client did not list beta2" >&2
-                                exit 1
-                            fi
-
-                            printf '%s\\n' "$key_line"
-                            printf '%s\\n' "$key_line" | grep -q "gpgsign"
-                            printf '%s\\n' "$key_line" | grep -q "detachsign"
-
-                            echo "Stage principal can access beta2 with both signing capabilities"
-                        '''
-                    )
-                }
+                          test -s "$gpg_signature"
+                          echo "beta2 --gpgsign succeeded"
+                      '''
+                  )
+              }
             }
         } else {
             stage("Validate prod signing credentials") {
