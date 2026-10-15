@@ -2,143 +2,68 @@
 
 node {
     timestamps {
-        properties([
-            parameters([
-                choice(
-                    name: "SIGNING_ENV",
-                    choices: ["stage", "prod"],
-                    description: "Signing environment to validate"
+        stage("Smoke testing")
+        {
+            withCredentials([
+                file(
+                    credentialsId: "ocp-art-signing-prod.keytab",
+                    variable: "DIRECT_SIGNING_PROD_KEYTAB"
+                ),
+                string(
+                    credentialsId: "ocp-art-signing-prod.user",
+                    variable: "DIRECT_SIGNING_PROD_PRINCIPAL"
                 )
             ])
-        ])
+            {
+                sh(
+                    label: "Sign with beta2",
+                    script: '''
+                        set -eu
+                        umask 077
 
-        def signingEnv = params.SIGNING_ENV ?: "stage"
+                        test -s "$DIRECT_SIGNING_PROD_KEYTAB"
+                        test "$DIRECT_SIGNING_PROD_PRINCIPAL" = \
+                            "ocp-art-signing-prod@IPA.REDHAT.COM"
 
-        if (signingEnv == "stage") {
-            stage("Validate stage signing credentials") {
-                withCredentials([
-                    file(
-                        credentialsId: "ocp-art-signing-stage.keytab",
-                        variable: "DIRECT_SIGNING_STAGE_KEYTAB"
-                    ),
-                    string(
-                        credentialsId: "ocp-art-signing-stage.user",
-                        variable: "DIRECT_SIGNING_STAGE_PRINCIPAL"
-                    )
-              ]) {
-                  sh(
-                      label: "Sign with beta2",
-                      script: '''
-                          set -eu
-                          umask 077
+                        work_dir="$(mktemp -d /tmp/art-beta2-sign-test.XXXXXX)"
+                        payload="$work_dir/payload.txt"
+                        gpg_signature="$work_dir/payload.gpg"
 
-                          test -s "$DIRECT_SIGNING_STAGE_KEYTAB"
-                          test "$DIRECT_SIGNING_STAGE_PRINCIPAL" = \
-                              "ocp-art-signing-stage@IPA.REDHAT.COM"
+                        export KRB5CCNAME="FILE:$work_dir/ccache"
 
-                          command -v kinit
-                          command -v klist
-                          command -v kdestroy
-                          command -v rh-signing-client
+                        cleanup() {
+                            kdestroy -c "$KRB5CCNAME" >/dev/null 2>&1 || true
+                            rm -rf -- "$work_dir"
+                        }
 
-                          work_dir="$(mktemp -d /tmp/art-beta2-sign-test.XXXXXX)"
-                          payload="$work_dir/payload.txt"
-                          gpg_signature="$work_dir/payload.gpg"
+                        trap cleanup EXIT
 
-                          export KRB5CCNAME="FILE:$work_dir/ccache"
+                        kinit \
+                            -k \
+                            -t "$DIRECT_SIGNING_PROD_KEYTAB" \
+                            -c "$KRB5CCNAME" \
+                            "$DIRECT_SIGNING_PROD_PRINCIPAL"
 
-                          cleanup() {
-                              kdestroy -c "$KRB5CCNAME" >/dev/null 2>&1 || true
-                              rm -rf -- "$work_dir"
-                          }
+                        klist -s -c "$KRB5CCNAME"
 
-                          trap cleanup EXIT
+                        printf '%s\\n' "ART beta2 signing smoke test" > "$payload"
 
-                          kinit \
-                              -k \
-                              -t "$DIRECT_SIGNING_STAGE_KEYTAB" \
-                              -c "$KRB5CCNAME" \
-                              "$DIRECT_SIGNING_STAGE_PRINCIPAL"
 
-                          klist -s -c "$KRB5CCNAME"
+                        HTTPS_PROXY="http://signing-proxy.art--runtime-int.svc.cluster.local:3128" \
+                        https_proxy="http://signing-proxy.art--runtime-int.svc.cluster.local:3128" \
+                        NO_PROXY="" \
+                        no_proxy="" \
+                        rh-signing-client \
+                            --key beta2 \
+                            "$payload" \
+                            --gpgsign \
+                            --output "$gpg_signature" \
+                            --onbehalfof "jupierce@redhat.com"
 
-                          printf '%s\\n' "ART beta2 signing smoke test" > "$payload"
-
-                          rh-signing-client \
-                              --key beta2 \
-                              "$payload" \
-                              --gpgsign \
-                              --output "$gpg_signature" \
-                              --onbehalfof "jupierce@redhat.com"
-
-                          test -s "$gpg_signature"
-                          echo "beta2 --gpgsign succeeded"
-                      '''
-                  )
-              }
-            }
-        } else {
-            stage("Validate prod signing credentials") {
-                withCredentials([
-                    file(
-                        credentialsId: "ocp-art-signing-prod.keytab",
-                        variable: "DIRECT_SIGNING_PROD_KEYTAB"
-                    ),
-                    string(
-                        credentialsId: "ocp-art-signing-prod.user",
-                        variable: "DIRECT_SIGNING_PROD_PRINCIPAL"
-                    )
-              ]) {
-                  sh(
-                      label: "Sign with beta2",
-                      script: '''
-                          set -eu
-                          umask 077
-
-                          test -s "$DIRECT_SIGNING_PROD_KEYTAB"
-                          test "$DIRECT_SIGNING_PROD_PRINCIPAL" = \
-                              "ocp-art-signing-prod@IPA.REDHAT.COM"
-
-                          command -v kinit
-                          command -v klist
-                          command -v kdestroy
-                          command -v rh-signing-client
-
-                          work_dir="$(mktemp -d /tmp/art-beta2-sign-test.XXXXXX)"
-                          payload="$work_dir/payload.txt"
-                          gpg_signature="$work_dir/payload.gpg"
-
-                          export KRB5CCNAME="FILE:$work_dir/ccache"
-
-                          cleanup() {
-                              kdestroy -c "$KRB5CCNAME" >/dev/null 2>&1 || true
-                              rm -rf -- "$work_dir"
-                          }
-
-                          trap cleanup EXIT
-
-                          kinit \
-                              -k \
-                              -t "$DIRECT_SIGNING_PROD_KEYTAB" \
-                              -c "$KRB5CCNAME" \
-                              "$DIRECT_SIGNING_PROD_PRINCIPAL"
-
-                          klist -s -c "$KRB5CCNAME"
-
-                          printf '%s\\n' "ART beta2 signing smoke test" > "$payload"
-
-                          rh-signing-client \
-                              --key beta2 \
-                              "$payload" \
-                              --gpgsign \
-                              --output "$gpg_signature" \
-                              --onbehalfof "jupierce@redhat.com"
-
-                          test -s "$gpg_signature"
-                          echo "beta2 --gpgsign succeeded"
-                      '''
-                  )
-              }
+                        test -s "$gpg_signature"
+                        echo "beta2 --gpgsign succeeded"
+                    '''
+                )
             }
         }
     }
