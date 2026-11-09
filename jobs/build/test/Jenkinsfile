@@ -49,8 +49,8 @@ node {
                         printf '%s\\n' "ART beta2 signing smoke test" > "$payload"
 
 
-                        HTTPS_PROXY="http://signing-proxy.art--runtime-int.svc.cluster.local:3128" \
-                        https_proxy="http://signing-proxy.art--runtime-int.svc.cluster.local:3128" \
+                        HTTPS_PROXY="http://172.30.59.70:3128" \
+                        https_proxy="http://172.30.59.70:3128" \
                         NO_PROXY="" \
                         no_proxy="" \
                         rh-signing-client \
